@@ -14,8 +14,12 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: "https://noorhaya-pharmacy.onrender.com",
+  credentials: true
+}));
 app.use(bodyParser.json());
+
 
 // ✅ Use only the .env connection string
 const mongoURI = process.env.MONGO_URI;
