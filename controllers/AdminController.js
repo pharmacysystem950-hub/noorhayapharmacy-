@@ -16,6 +16,16 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+
+// ✅ Verify SMTP connection ONCE at server startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ SMTP connection failed:", error);
+  } else {
+    console.log("✅ SMTP server ready to send messages");
+  }
+});
+
 const AdminController = {
 // Signup
  signup: async (req, res) => {
