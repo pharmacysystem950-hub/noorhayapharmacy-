@@ -15,7 +15,7 @@ const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: "https://maymed-pharmacysystem.onrender.com",
+  origin: "https://maymed-pharmacy.onrender.com",
   credentials: true
 }));
 app.use(bodyParser.json());
