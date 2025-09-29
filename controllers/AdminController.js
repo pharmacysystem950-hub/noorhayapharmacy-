@@ -1,34 +1,17 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+const sgMail = require("@sendgrid/mail");
 const AdminModel = require("../models/AdminModel");
 
+// Set SendGrid API Key
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // Utility to generate 6-digit OTP
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// Configure email transporter (Gmail example)
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER, // your Gmail email
-    pass: process.env.EMAIL_PASS, // app password (not your Gmail password)
-  },
-});
-
-
-// ✅ Verify SMTP connection ONCE at server startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ SMTP connection failed:", error);
-  } else {
-    console.log("✅ SMTP server ready to send messages");
-  }
-});
-
 const AdminController = {
-// Signup
- signup: async (req, res) => {
+  // Signup
+  signup: async (req, res) => {
     const { USERNAME, PASSWORD, PHARMACY_NAME, EMAIL } = req.body;
 
     try {
@@ -45,21 +28,16 @@ const AdminController = {
         otpExpires,
       });
 
-      // Send OTP via email
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
+      // Send OTP via SendGrid
+      const msg = {
         to: EMAIL,
+        from: process.env.EMAIL_FROM, // verified sender in SendGrid
         subject: "Your OTP Code",
         text: `Your OTP code is: ${otp}. It will expire in 5 minutes.`,
+        html: `<p>Your OTP code is: <strong>${otp}</strong>. It will expire in 5 minutes.</p>`,
       };
 
-      transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-          console.error("Email send error:", error);
-        } else {
-          console.log("Email sent:", info.response);
-        }
-      });
+      await sgMail.send(msg).then(() => console.log("OTP email sent ✅")).catch(console.error);
 
       res.status(201).json({
         message: "Admin registered. OTP sent to your email.",
@@ -92,25 +70,19 @@ const AdminController = {
     }
   },
 
-
-
-  
-  // Login
   login: async (req, res) => {
     const { USERNAME, PASSWORD, PHARMACY_NAME } = req.body;
 
     try {
       const admin = await AdminModel.findByUsernameAndPharmacyName(USERNAME, PHARMACY_NAME);
 
-      if (!admin) {
+      if (!admin)
         return res.status(400).json({ error: "Invalid username, password, or pharmacy name" });
-      }
 
       const isPasswordValid = bcrypt.compareSync(PASSWORD, admin.PASSWORD);
 
-      if (!isPasswordValid) {
+      if (!isPasswordValid)
         return res.status(400).json({ error: "Invalid username, password, or pharmacy name" });
-      }
 
       const token = jwt.sign(
         { ADMIN_ID: admin._id.toString(), USERNAME: admin.USERNAME },
@@ -125,20 +97,13 @@ const AdminController = {
     }
   },
 
-  // Get profile
   getProfile: async (req, res) => {
     try {
       const ADMIN_ID = req.user.ADMIN_ID;
-
-      if (!ADMIN_ID) {
-        return res.status(403).json({ error: "Unauthorized: No admin ID found" });
-      }
+      if (!ADMIN_ID) return res.status(403).json({ error: "Unauthorized: No admin ID found" });
 
       const admin = await AdminModel.findById(ADMIN_ID);
-
-      if (!admin) {
-        return res.status(404).json({ error: "Admin not found" });
-      }
+      if (!admin) return res.status(404).json({ error: "Admin not found" });
 
       res.status(200).json(admin);
     } catch (err) {
@@ -147,7 +112,6 @@ const AdminController = {
     }
   },
 
-  // Edit profile
   editProfile: async (req, res) => {
     const ADMIN_ID = req.user.ADMIN_ID;
     const { USERNAME, PASSWORD, PHARMACY_NAME } = req.body;
@@ -155,11 +119,15 @@ const AdminController = {
     try {
       const hashedPassword = PASSWORD ? bcrypt.hashSync(PASSWORD, 10) : null;
 
-      const updatedAdmin = await AdminModel.updateProfile(ADMIN_ID, USERNAME, PHARMACY_NAME, hashedPassword);
+      const updatedAdmin = await AdminModel.updateProfile(
+        ADMIN_ID,
+        USERNAME,
+        PHARMACY_NAME,
+        hashedPassword
+      );
 
-      if (!updatedAdmin) {
+      if (!updatedAdmin)
         return res.status(404).json({ error: "Admin not found" });
-      }
 
       res.status(200).json({ message: "Profile updated successfully", updatedAdmin });
     } catch (err) {
@@ -168,7 +136,6 @@ const AdminController = {
     }
   },
 
-   // Forgot password – send OTP
   forgotPassword: async (req, res) => {
     const { EMAIL } = req.body;
     if (!EMAIL) return res.status(400).json({ error: "Email is required" });
@@ -183,28 +150,23 @@ const AdminController = {
       admin.otpExpires = otpExpires;
       await admin.save();
 
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
+      const msg = {
         to: EMAIL,
+        from: process.env.EMAIL_FROM,
         subject: "Password Reset OTP",
         text: `Hello ${admin.USERNAME}, your password reset OTP is: ${otp}. It expires in 5 minutes.`,
+        html: `<p>Hello ${admin.USERNAME}, your password reset OTP is: <strong>${otp}</strong>. It expires in 5 minutes.</p>`,
       };
 
-      transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-          console.error("Forgot Password email error:", error);
-          return res.status(500).json({ error: "Error sending OTP email" });
-        }
-        console.log("OTP email sent:", info.response);
-        res.status(200).json({ message: "OTP sent to your email" });
-      });
+      await sgMail.send(msg).then(() => console.log("OTP email sent ✅")).catch(console.error);
+
+      res.status(200).json({ message: "OTP sent to your email" });
     } catch (err) {
       console.error("Forgot Password error:", err);
       res.status(500).json({ error: "Internal server error" });
     }
   },
 
-  // Reset password – verify OTP
   resetPassword: async (req, res) => {
     const { EMAIL, OTP, NEW_PASSWORD } = req.body;
     if (!EMAIL || !OTP || !NEW_PASSWORD)
@@ -228,8 +190,6 @@ const AdminController = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-  
 };
-
 
 module.exports = AdminController;
